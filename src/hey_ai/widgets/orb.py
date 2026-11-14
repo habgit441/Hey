@@ -5,7 +5,16 @@ from PySide6.QtGui import (
     QPainter,
     QRadialGradient,
 )
-from PySide6.QtWidgets import QToolButton, QWidget
+from PySide6.QtWidgets import (
+    QLabel,
+    QLineEdit,
+    QPushButton,
+    QToolButton,
+    QVBoxLayout,
+    QWidget,
+)
+
+from hey_ai.assistant import TaskAssistant
 
 
 class OrbWindow(QWidget):
@@ -22,6 +31,7 @@ class OrbWindow(QWidget):
         self._dragged = False
         self._press_on_orb = False
         self._orb_center = QPointF()
+        self.assistant = TaskAssistant()
 
         self.setWindowTitle("HEY AI")
         self.setWindowFlags(
@@ -54,6 +64,74 @@ class OrbWindow(QWidget):
         )
         self.minimize_button.clicked.connect(self.collapse)
         self.minimize_button.hide()
+
+        self.content_panel = QWidget(self)
+        self.content_panel.setGeometry(12, 42, self.width() - 24, self.height() - 52)
+        self.content_panel.setStyleSheet(
+            """
+            QWidget {
+                background: rgba(15, 28, 52, 190);
+                border: 1px solid rgba(103, 178, 255, 125);
+                border-radius: 22px;
+            }
+            QLabel {
+                color: #edf6ff;
+                font-size: 12px;
+            }
+            QLineEdit {
+                background: rgba(10, 24, 43, 180);
+                color: #edf6ff;
+                border: 1px solid rgba(116, 186, 255, 120);
+                border-radius: 12px;
+                padding: 7px 10px;
+            }
+            QPushButton {
+                background: rgba(32, 118, 255, 180);
+                color: white;
+                border: none;
+                border-radius: 12px;
+                padding: 8px 12px;
+            }
+            QPushButton:hover {
+                background: rgba(52, 146, 255, 220);
+            }
+            """
+        )
+        self.content_panel.hide()
+
+        self.content_layout = QVBoxLayout(self.content_panel)
+        self.content_layout.setContentsMargins(14, 14, 14, 14)
+
+        self.status_label = QLabel("HEY AI is ready to listen")
+        self.status_label.setWordWrap(True)
+        self.status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        self.command_input = QLineEdit()
+        self.command_input.setPlaceholderText("Tell me what you need")
+        self.command_input.returnPressed.connect(self.handle_command)
+
+        self.action_row = QWidget(self.content_panel)
+        action_layout = QVBoxLayout(self.action_row)
+        action_layout.setContentsMargins(0, 0, 0, 0)
+
+        self.listen_button = QPushButton("Listen")
+        self.listen_button.clicked.connect(self.handle_voice_input)
+
+        self.send_button = QPushButton("Send")
+        self.send_button.clicked.connect(self.handle_command)
+
+        action_layout.addWidget(self.listen_button)
+        action_layout.addWidget(self.send_button)
+
+        self.response_label = QLabel("I’ll ask for more details whenever a task needs clarification.")
+        self.response_label.setWordWrap(True)
+        self.response_label.setAlignment(Qt.AlignmentFlag.AlignLeft)
+
+        self.content_layout.addWidget(self.status_label)
+        self.content_layout.addWidget(self.command_input)
+        self.content_layout.addWidget(self.action_row)
+        self.content_layout.addWidget(self.response_label)
+
         self._update_orb_center()
         self._place_near_screen_corner()
 
@@ -77,12 +155,39 @@ class OrbWindow(QWidget):
         if expanded:
             self.setFixedSize(*self.EXPANDED_SIZE)
             self.minimize_button.show()
+            self.content_panel.show()
+            self.content_panel.setGeometry(12, 42, self.width() - 24, self.height() - 52)
         else:
             self.setFixedSize(self.ORB_SIZE, self.ORB_SIZE)
             self.minimize_button.hide()
+            self.content_panel.hide()
         self._update_orb_center()
         self.move(old_center - self._orb_center.toPoint())
         self.update()
+
+    def handle_voice_input(self) -> None:
+        phrase = self.assistant.listen_for_voice()
+        if not phrase:
+            self.response_label.setText(
+                "I can’t hear you yet. Please allow microphone access in Windows Privacy settings, make sure a microphone is connected, and click Listen again."
+            )
+            self.status_label.setText("Microphone unavailable")
+            return
+
+        self.command_input.setText(phrase)
+        self.handle_command(phrase)
+
+    def handle_command(self, command: str | None = None) -> None:
+        text = (command if command is not None else self.command_input.text()).strip()
+        if not text:
+            self.response_label.setText("I’m ready—tell me what you want me to do.")
+            return
+
+        self.status_label.setText("Processing your request")
+        response = self.assistant.handle_message(text)
+        self.response_label.setText(response)
+        self.command_input.clear()
+        self.status_label.setText("Listening for your next task")
 
     def _update_orb_center(self) -> None:
         if self._expanded:
